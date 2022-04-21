@@ -4,7 +4,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 
 import torchvision
 from torchvision import transforms
-
+from torchsummary import summary
 from models.mlp import MLP
 from utils import *
 
@@ -14,8 +14,7 @@ sys.path.insert(0, os.path.join(current_dir, '..'))
 
 def run(args):
     device = torch.device('cuda')
-    transform = transforms.Compose([transforms.ToTensor(),
-                                    transforms.Normalize(mean=[0.5], std=[0.5])])
+    transform = transforms.Compose([transforms.ToTensor()])
     trainset = torchvision.datasets.MNIST(root="./data/",
                                           transform=transform,
                                           train=True,
@@ -26,12 +25,12 @@ def run(args):
                                            train=False)
 
     trainloader = torch.utils.data.DataLoader(dataset=trainset,
-                                              batch_size=512,
-                                              shuffle=True)
+                                              batch_size=32,
+                                              shuffle=False)
 
     testloader = torch.utils.data.DataLoader(dataset=data_test,
                                              batch_size=512,
-                                             shuffle=True)
+                                             shuffle=False)
 
     # ---- WM configs ------ #
     # binary prior info to be embedded, shape (T, 10)
@@ -50,19 +49,20 @@ def run(args):
     loss_meter = 0
     acc_meter = 0
     with torch.no_grad():
-        for d, t in tqdm(testloader):
+        for d, t in testloader:
             data = d.to(device)
             target = t.to(device)
             pred, _ = model(data)
             loss_meter += F.cross_entropy(pred, target, reduction='sum').item()
             pred = pred.max(1, keepdim=True)[1]
             acc_meter += pred.eq(target.view_as(pred)).sum().item()
-    print('Test loss:', loss_meter)
+    print('Test loss:', loss_meter / len(testloader.dataset))
     print('Test accuracy:', acc_meter / len(testloader.dataset))
     torch.save(model.state_dict(), 'logs/whitebox/marked/mlp.pth')
 
     # ---- Validate WM ---- #
-    marked_model = MLP()
+    marked_model = MLP().to(device)
+    summary(marked_model, input_size=(1, 28, 28))
     marked_model.load_state_dict(torch.load('logs/whitebox/marked/mlp.pth'))
     x_train_subset_loader = subsample_training_data(trainset, args.target_class)
     marked_activations = get_activations(marked_model, x_train_subset_loader)
@@ -80,11 +80,8 @@ def main():
     parser = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('--n_classes', type=int, default=10,
                         help='Number of classes in data')
-    parser.add_argument('--key_len', type=int, default=20,
-                        help='Length of key')
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('--th', default=0.1, type=float, help='p_threshold')
-    parser.add_argument('--epochs', default=2, type=int, help='embed_epoch')
+    parser.add_argument('--epochs', default=1, type=int, help='embed_epoch')
     parser.add_argument('--scale', default=0.01, type=float, help='for loss1')
     parser.add_argument('--gamma', default=0.01, type=float, help='for loss2')
     parser.add_argument('--target_dense_idx', default=2, type=int, help='target layer to carry WM')

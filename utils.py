@@ -1,9 +1,8 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-from tqdm import tqdm
 from scipy.special import comb
-from torch.utils.data import ConcatDataset, DataLoader, Sampler
+from torch.utils.data import ConcatDataset, DataLoader
 
 
 def key_generation(marked_model, optimizer, original_data, desired_key_len, img_size=32, num_classes=10,
@@ -51,7 +50,7 @@ def fine_tune(model, optimizer, dataloader, epochs):
     device = next(model.parameters()).device
     criterion = torch.nn.CrossEntropyLoss()
     for ep in range(epochs):
-        for d, t in tqdm(dataloader):
+        for d, t in dataloader:
             d = d.to(device)
             t = t.to(device)
             optimizer.zero_grad()
@@ -110,9 +109,9 @@ def get_activations(model, input_loader):
     model.eval()
     device = next(model.parameters()).device
     with torch.no_grad():
-        for d, t in tqdm(input_loader):
+        for d, t in input_loader:
             d = d.to(device)
-            _, feat = model(d)
+            _, feat = model(d, is_eval=True)
             activations.append(feat.detach().cpu().numpy())
     return activations
 
@@ -147,21 +146,21 @@ def subsample_training_data(dataset, target_class):
 
 def train_whitebox(model, optimizer, dataloader, b, centers, args):
     model.train()
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss().cuda()
     device = next(model.parameters()).device
     x_value = np.random.randn(args.embed_bits, 512)
     np.save('logs/whitebox/projection_matrix.npy', x_value)
     x_value = torch.tensor(x_value, dtype=torch.float32).to(device)
     b = torch.tensor(b).to(device)
     for ep in range(args.epochs):
-        for d, t in tqdm(dataloader):
+        for d, t in dataloader:
             d = d.to(device)
             t = t.to(device)
             optimizer.zero_grad()
             pred, feat = model(d)
             loss = criterion(pred, t)
 
-            centers_batch = torch.gather(centers, 0, t.unsqueeze(1).expand(1, t.shape[0], feat.shape[1]).squeeze())
+            centers_batch = torch.gather(centers, 0, t.unsqueeze(1).repeat(1, feat.shape[1]))
             loss1 = F.mse_loss(feat, centers_batch)
 
             centers_batch_reshape = torch.unsqueeze(centers_batch, 1)
@@ -170,7 +169,7 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
             pairwise_dists = torch.sum(pairwise_dists, dim=-1)
             arg = torch.topk(-pairwise_dists, k=2)[1]
             arg = arg[:, -1]
-            closest_cents = torch.gather(centers, 0, arg.unsqueeze(1).expand(1, arg.shape[0], feat.shape[1]).squeeze())
+            closest_cents = torch.gather(centers, 0, arg.unsqueeze(1).repeat(1, feat.shape[1]))
             dists = torch.sum((centers_batch - closest_cents) ** 2, dim=-1)
             cosines = torch.mul(closest_cents, centers_batch)
             cosines = torch.sum(cosines, dim=-1)
@@ -181,14 +180,14 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
             embed_center_idx = args.target_class
             idx_classK = (t == embed_center_idx).nonzero(as_tuple=True)[0]
             activ_classK = torch.gather(centers_batch, 0,
-                                        idx_classK.unsqueeze(1).expand(1, idx_classK.size()[0], feat.shape[1]).squeeze(0))
+                                        idx_classK.unsqueeze(1).repeat(1, feat.shape[1])).unsqueeze(1)
             center_classK = torch.sum(activ_classK, dim=0)
-            Xc = torch.matmul(x_value, center_classK).unsqueeze(1)
+            Xc = torch.matmul(x_value, center_classK.t())
             bk = b[:, embed_center_idx]
             bk = bk.view([b[:, embed_center_idx].shape[0], 1])
             bk_float = bk.float()
             probs = torch.sigmoid(Xc)
-            entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs)
+            entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs, reduce=False)
             loss4 = entropy_tensor.sum()
 
             (loss + args.scale * (loss1 + loss2 + loss3) + args.gamma * loss4).backward()
