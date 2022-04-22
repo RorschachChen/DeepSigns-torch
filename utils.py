@@ -111,7 +111,7 @@ def get_activations(model, input_loader):
     with torch.no_grad():
         for d, t in input_loader:
             d = d.to(device)
-            _, feat = model(d, is_eval=True)
+            _, feat = model(d)
             activations.extend(feat.detach().cpu().numpy())
     return np.stack(activations, 0)
 
@@ -167,10 +167,10 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
             if len(idx_classK[0]) >= 1:
                 idx_classK = idx_classK[0]
                 activ_classK = torch.gather(centers_batch, 0,
-                                            idx_classK.unsqueeze(1).repeat(1, feat.shape[1])).unsqueeze(1)
+                                            idx_classK.unsqueeze(1).repeat(1, feat.shape[1]))
                 center_classK = torch.mean(activ_classK, dim=0)
-                Xc = torch.matmul(x_value, center_classK.t())
-                bk = b[:, embed_center_idx].unsqueeze(1)
+                Xc = torch.matmul(x_value, center_classK)
+                bk = b[:, embed_center_idx]
                 bk_float = bk.float()
                 probs = torch.sigmoid(Xc)
                 entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs, reduce=False)

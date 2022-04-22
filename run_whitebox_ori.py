@@ -37,7 +37,7 @@ def run(args):
     b = np.random.randint(2, size=(args.embed_bits, args.n_classes))
     # ---- Embed WM ------ #
     model = MLP().to(device)
-    centers = torch.nn.Parameter(torch.randn(args.n_classes, 512).to(device), requires_grad=True)
+    centers = torch.nn.Parameter(torch.rand(args.n_classes, 512).to(device), requires_grad=True)
     optimizer = torch.optim.RMSprop([
         {'params': model.parameters()},
         {'params': centers}

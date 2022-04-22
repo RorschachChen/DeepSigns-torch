@@ -11,7 +11,7 @@ class MLP(nn.Module):
         self.fc3 = nn.Linear(512, 10)
         self.relu = nn.ReLU()
 
-    def forward(self, x, is_eval=False):
+    def forward(self, x):
         x = x.view(x.shape[0], -1)
         out = self.fc1(x)
         out = self.relu(out)
@@ -20,8 +20,5 @@ class MLP(nn.Module):
         out = self.relu(out)
         feat = out
         out = self.dropout(out)
-        if is_eval:
-            feat = out
         out = self.fc3(out)
-        out = F.softmax(out)
         return out, feat
