@@ -58,17 +58,18 @@ def run(args):
             acc_meter += pred.eq(target.view_as(pred)).sum().item()
     print('Test loss:', loss_meter / len(testloader.dataset))
     print('Test accuracy:', acc_meter / len(testloader.dataset))
-    torch.save(model.state_dict(), 'logs/whitebox/marked/mlp.pth')
+    sd_path = 'logs/whitebox/marked/mlp.pth'
+    torch.save(model.state_dict(), sd_path)
 
     # ---- Validate WM ---- #
     marked_model = MLP().to(device)
-    summary(marked_model, input_size=(1, 28, 28))
-    marked_model.load_state_dict(torch.load('logs/whitebox/marked/mlp.pth'))
+    # summary(marked_model, input_size=(1, 28, 28))
+    marked_model.load_state_dict(torch.load(sd_path))
     x_train_subset_loader = subsample_training_data(trainset, args.target_class)
     marked_activations = get_activations(marked_model, x_train_subset_loader)
     print("Get activations of marked FC layer")
     # choose the activations from first wmarked dense layer
-    marked_FC_activations = marked_activations[0]
+    marked_FC_activations = marked_activations
     A = np.load('logs/whitebox/projection_matrix.npy')
     print('A = ', A)
     decoded_WM = extract_WM_from_activations(marked_FC_activations, A)

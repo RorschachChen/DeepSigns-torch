@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from scipy.special import comb
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 
 def key_generation(marked_model, optimizer, original_data, desired_key_len, img_size=32, num_classes=10,
@@ -112,8 +112,8 @@ def get_activations(model, input_loader):
         for d, t in input_loader:
             d = d.to(device)
             _, feat = model(d, is_eval=True)
-            activations.append(feat.detach().cpu().numpy())
-    return activations
+            activations.extend(feat.detach().cpu().numpy())
+    return np.stack(activations, 0)
 
 
 def compute_BER(decode_wmark, b_classK):
@@ -123,24 +123,12 @@ def compute_BER(decode_wmark, b_classK):
     return BER
 
 
-class ThisSampler(torch.utils.data.sampler.Sampler):
-    def __init__(self, mask, data_source):
-        super(ThisSampler, self).__init__(data_source)
-        self.mask = mask
-        self.data_source = data_source
-
-    def __iter__(self):
-        return iter([i.item() for i in torch.nonzero(self.mask)])
-
-    def __len__(self):
-        return len(self.data_source)
-
-
 def subsample_training_data(dataset, target_class):
-    mask = [1 if dataset[i][1] == target_class else 0 for i in range(len(dataset))]
-    mask = torch.tensor(mask)
-    sampler = ThisSampler(mask, dataset)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=128, sampler=sampler, shuffle=False)
+    train_indices = (dataset.targets == target_class).nonzero().reshape(-1)
+    subsample_len = int(np.floor(0.5 * len(train_indices)))
+    subset_idx = np.random.randint(train_indices.shape[0], size=subsample_len)
+    train_subset = Subset(dataset, train_indices[subset_idx])
+    dataloader = torch.utils.data.DataLoader(train_subset, batch_size=128, shuffle=False)
     return dataloader
 
 
@@ -159,10 +147,8 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
             optimizer.zero_grad()
             pred, feat = model(d)
             loss = criterion(pred, t)
-
             centers_batch = torch.gather(centers, 0, t.unsqueeze(1).repeat(1, feat.shape[1]))
-            loss1 = F.mse_loss(feat, centers_batch)
-
+            loss1 = F.mse_loss(feat, centers_batch, reduction='sum') / 2
             centers_batch_reshape = torch.unsqueeze(centers_batch, 1)
             centers_reshape = torch.unsqueeze(centers, 0)
             pairwise_dists = (centers_batch_reshape - centers_reshape) ** 2
@@ -173,22 +159,21 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
             dists = torch.sum((centers_batch - closest_cents) ** 2, dim=-1)
             cosines = torch.mul(closest_cents, centers_batch)
             cosines = torch.sum(cosines, dim=-1)
-            loss2 = (cosines * dists - dists).sum()
-
+            loss2 = (cosines * dists - dists).mean()
             loss3 = (1 - torch.sum(centers ** 2, dim=1)).abs().sum()
-
+            loss4 = 0
             embed_center_idx = args.target_class
-            idx_classK = (t == embed_center_idx).nonzero(as_tuple=True)[0]
-            activ_classK = torch.gather(centers_batch, 0,
-                                        idx_classK.unsqueeze(1).repeat(1, feat.shape[1])).unsqueeze(1)
-            center_classK = torch.sum(activ_classK, dim=0)
-            Xc = torch.matmul(x_value, center_classK.t())
-            bk = b[:, embed_center_idx]
-            bk = bk.view([b[:, embed_center_idx].shape[0], 1])
-            bk_float = bk.float()
-            probs = torch.sigmoid(Xc)
-            entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs, reduce=False)
-            loss4 = entropy_tensor.sum()
-
+            idx_classK = (t == embed_center_idx).nonzero(as_tuple=True)
+            if len(idx_classK[0]) >= 1:
+                idx_classK = idx_classK[0]
+                activ_classK = torch.gather(centers_batch, 0,
+                                            idx_classK.unsqueeze(1).repeat(1, feat.shape[1])).unsqueeze(1)
+                center_classK = torch.mean(activ_classK, dim=0)
+                Xc = torch.matmul(x_value, center_classK.t())
+                bk = b[:, embed_center_idx].unsqueeze(1)
+                bk_float = bk.float()
+                probs = torch.sigmoid(Xc)
+                entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs, reduce=False)
+                loss4 += entropy_tensor.sum()
             (loss + args.scale * (loss1 + loss2 + loss3) + args.gamma * loss4).backward()
             optimizer.step()
