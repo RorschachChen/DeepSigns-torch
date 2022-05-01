@@ -124,7 +124,7 @@ def compute_BER(decode_wmark, b_classK):
 
 
 def subsample_training_data(dataset, target_class):
-    train_indices = (dataset.targets == target_class).nonzero().reshape(-1)
+    train_indices = (torch.tensor(dataset.targets) == target_class).nonzero().reshape(-1)
     subsample_len = int(np.floor(0.5 * len(train_indices)))
     subset_idx = np.random.randint(train_indices.shape[0], size=subsample_len)
     train_subset = Subset(dataset, train_indices[subset_idx])
@@ -132,15 +132,16 @@ def subsample_training_data(dataset, target_class):
     return dataloader
 
 
-def train_whitebox(model, optimizer, dataloader, b, centers, args):
+def train_whitebox(model, optimizer, dataloader, b, centers, args, pm_path, feat_length=512):
     model.train()
     criterion = torch.nn.CrossEntropyLoss().cuda()
     device = next(model.parameters()).device
-    x_value = np.random.randn(args.embed_bits, 512)
-    np.save('logs/whitebox/projection_matrix.npy', x_value)
+    x_value = np.random.randn(args.embed_bits, feat_length)
+    np.save(pm_path, x_value)
     x_value = torch.tensor(x_value, dtype=torch.float32).to(device)
     b = torch.tensor(b).to(device)
     for ep in range(args.epochs):
+        print(f'epochs: {ep}')
         for d, t in dataloader:
             d = d.to(device)
             t = t.to(device)
@@ -176,4 +177,5 @@ def train_whitebox(model, optimizer, dataloader, b, centers, args):
                 entropy_tensor = F.binary_cross_entropy(target=bk_float, input=probs, reduce=False)
                 loss4 += entropy_tensor.sum()
             (loss + args.scale * (loss1 + loss2 + loss3) + args.gamma * loss4).backward()
+            # loss.backward()
             optimizer.step()

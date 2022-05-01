@@ -43,7 +43,8 @@ def run(args):
         {'params': centers}
     ], alpha=0.9, lr=args.lr, eps=1e-8,
         weight_decay=0.001)
-    train_whitebox(model, optimizer, trainloader, b, centers, args)
+    pm_path = 'logs/whitebox/mlp_projection_matrix.npy'
+    train_whitebox(model, optimizer, trainloader, b, centers, args, pm_path)
 
     model.eval()
     loss_meter = 0
@@ -70,7 +71,7 @@ def run(args):
     print("Get activations of marked FC layer")
     # choose the activations from first wmarked dense layer
     marked_FC_activations = marked_activations
-    A = np.load('logs/whitebox/projection_matrix.npy')
+    A = np.load(pm_path)
     print('A = ', A)
     decoded_WM = extract_WM_from_activations(marked_FC_activations, A)
     BER = compute_BER(decoded_WM, b[:, args.target_class])
@@ -82,7 +83,7 @@ def main():
     parser.add_argument('--n_classes', type=int, default=10,
                         help='Number of classes in data')
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('--epochs', default=1, type=int, help='embed_epoch')
+    parser.add_argument('--epochs', default=4, type=int, help='embed_epoch')
     parser.add_argument('--scale', default=0.01, type=float, help='for loss1')
     parser.add_argument('--gamma', default=0.01, type=float, help='for loss2')
     parser.add_argument('--target_dense_idx', default=2, type=int, help='target layer to carry WM')
