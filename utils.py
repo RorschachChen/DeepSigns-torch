@@ -11,7 +11,9 @@ def key_generation(marked_model, optimizer, original_data, desired_key_len, img_
     batch_size = 1024
     key_gen_flag = 1
     while key_gen_flag:
+        np.random.seed()
         x_retrain_rand = torch.randn(key_len, 3, img_size, img_size)
+        np.random.seed()
         y_retrain_rand_vec = torch.randint(num_classes, size=[key_len])
         retrain_rand_data = torch.utils.data.TensorDataset(x_retrain_rand, y_retrain_rand_vec)
         retrain_rand_loader = DataLoader(retrain_rand_data,
@@ -23,7 +25,7 @@ def key_generation(marked_model, optimizer, original_data, desired_key_len, img_
         retrain_loader = DataLoader(retrain_data,
                                     batch_size=batch_size,
                                     shuffle=False)
-        fine_tune(marked_model, optimizer, retrain_loader, embed_epoch)
+        fine_tune(marked_model, optimizer, retrain_rand_loader, embed_epoch)
         _, _, correct_idx = test(marked_model, retrain_rand_loader)
         selected_key_idx = np.intersect1d(err_idx, correct_idx)
         selected_keys = x_retrain_rand[np.array(selected_key_idx).astype(int), :]
@@ -40,7 +42,7 @@ def key_generation(marked_model, optimizer, original_data, desired_key_len, img_
             np.save('logs/blackbox/keyRandomImage' + '_keyLength' + str(desired_key_len) + '.npy', selected_keys)
             np.savetxt('logs/blackbox/keyRandomLabel' + '_keyLength' + str() + '.txt', selected_keys_labels, fmt='%i',
                        delimiter=',')
-            torch.save(marked_model.state_dict(), f'logs/blackbox/marked/resnet18.pth')
+            torch.save(marked_model.state_dict(), f'logs/blackbox/resnet18.pth')
             print('WM key generation finished. Save watermarked model. ')
     return selected_keys, selected_keys_labels
 
@@ -54,7 +56,7 @@ def fine_tune(model, optimizer, dataloader, epochs):
             d = d.to(device)
             t = t.to(device)
             optimizer.zero_grad()
-            pred = model(d)
+            pred, _ = model(d)
             loss = criterion(pred, t)
             loss.backward()
             optimizer.step()
@@ -72,13 +74,13 @@ def test(model, dataloader):
             data, target = load[:2]
             data = data.to(device)
             target = target.to(device)
-            pred = model(data)
+            pred , x = model(data)
             loss_meter += F.cross_entropy(pred, target, reduction='sum').item()
             pred = pred.max(1, keepdim=True)[1]
             correct_idx += (pred.view_as(target) == target).nonzero(as_tuple=True)[0].cpu() + runcount
             err_idx += (pred.view_as(target) != target).nonzero(as_tuple=True)[0].cpu() + runcount
             runcount += data.size(0)
-    return loss_meter, err_idx, correct_idx
+    return [], err_idx, correct_idx
 
 
 def compute_mismatch_threshold(c=10, kp=50, p=0.05):

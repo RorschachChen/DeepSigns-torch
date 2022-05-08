@@ -2,24 +2,53 @@ import os
 import sys
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import torchvision
-from torchvision import transforms
+from torchvision import transforms, datasets
 from utils import *
-
+from torchvision.datasets import ImageFolder
+import pandas as pd
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(current_dir, '..'))
 from models.resnet import ResNet18
+from torch.utils.data import DataLoader,Dataset
 
+class ImageDataset(Dataset):
+    def __init__(self, csv, img_folder, transform):
+        self.labels = label_csv
+        self.transform = transform
+        self.img_folder = img_folder
 
+        self.image_names = self.labels
+        self.labels = np.array(self.csv.drop(['Id', 'Genre'], axis=1))
+
+    # The __len__ function returns the number of samples in our dataset.
+    def __len__(self):
+        return len(self.image_names)
+
+    def __getitem__(self, index):
+        image = cv2.imread(self.img_folder + self.image_names.iloc[index] + '.jpg')
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        image = self.transform(image)
+        targets = self.labels[index]
+
+        sample = {'image': image, 'labels': targets}
+
+        return sample
 def run(args):
-    device = torch.device('cuda')
+    device = torch.device('cpu')
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
-    trainset = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform_train)
+
+    # trainset = datasets.MNIST(
+    #     root='./data', train=True, download=True, transform=transform_train)
+    train_y = pd.read_csv('~/Downloads/trainLabels.csv')
+    train_x = ImageFolder('~/Downloads/', transform=transform_train)
+
+    trainset = torch.utils.data.TensorDataset(train_x[:1000], train_y[:1000])
     # ---- Embed WM ------ #
     model = ResNet18().to(device)
     model.load_state_dict(torch.load('logs/blackbox/ummarked/resnet18.pth'))
@@ -33,16 +62,20 @@ def run(args):
 
     # ----- Detect WM ------ #
     marked_model = ResNet18().to(device)
-    marked_model.load_state_dict(torch.load('logs/blackbox/marked/resnet18.pth'))
+    marked_model.load_state_dict(torch.load('logs/blackbox/resnet18.pth'))
     acc_meter = 0
+    total_samples = 0
     with torch.no_grad():
         for load in key_loader:
             data, target = load[:2]
             data = data.to(device)
             target = target.to(device)
-            pred = marked_model(data)
+            pred, _ = marked_model(data)
             pred = pred.max(1, keepdim=True)[1]
+            total_samples +=  len(pred)
             acc_meter += pred.eq(target.view_as(pred)).sum().item()
+    # theta = total_samples * args.th
+    # acc_meter = total_samples - acc_meter
     theta = compute_mismatch_threshold(c=args.n_classes, kp=args.key_len, p=args.th)  # pk = 1/C, |K|: # trials
     print('probability threshold p is ', args.th)
     print('Mismatch threshold is : ', theta)
