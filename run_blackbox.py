@@ -40,7 +40,7 @@ def run(args):
             data, target = load[:2]
             data = data.to(device)
             target = target.to(device)
-            pred = marked_model(data)
+            pred, _ = marked_model(data)
             pred = pred.max(1, keepdim=True)[1]
             acc_meter += pred.eq(target.view_as(pred)).sum().item()
     theta = compute_mismatch_threshold(c=args.n_classes, kp=args.key_len, p=args.th)  # pk = 1/C, |K|: # trials

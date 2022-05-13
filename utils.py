@@ -54,7 +54,7 @@ def fine_tune(model, optimizer, dataloader, epochs):
             d = d.to(device)
             t = t.to(device)
             optimizer.zero_grad()
-            pred = model(d)
+            pred, _ = model(d)
             loss = criterion(pred, t)
             loss.backward()
             optimizer.step()
@@ -72,7 +72,7 @@ def test(model, dataloader):
             data, target = load[:2]
             data = data.to(device)
             target = target.to(device)
-            pred = model(data)
+            pred, _ = model(data)
             loss_meter += F.cross_entropy(pred, target, reduction='sum').item()
             pred = pred.max(1, keepdim=True)[1]
             correct_idx += (pred.view_as(target) == target).nonzero(as_tuple=True)[0].cpu() + runcount
