@@ -33,7 +33,7 @@ def run(args):
 
     # ----- Detect WM ------ #
     marked_model = ResNet18().to(device)
-    marked_model.load_state_dict(torch.load('logs/blackbox/marked/resnet18.pth'))
+    marked_model.load_state_dict(torch.load('logs/blackbox/ummarked/resnet18.pth'))
     acc_meter = 0
     with torch.no_grad():
         for load in key_loader:

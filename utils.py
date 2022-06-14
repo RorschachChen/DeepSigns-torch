@@ -124,27 +124,37 @@ def compute_BER(decode_wmark, b_classK):
 
 
 def subsample_training_data(dataset, target_class):
-    train_indices = (dataset.targets == target_class).nonzero().reshape(-1)
+    # train_indices = []
+    # for i in range(len(dataset.targets)):
+    #     if dataset.targets[i] == target_class:
+    #         train_indices.append(i)
+    train_indices = (np.array(dataset.targets) == target_class).nonzero()[0]  # .reshape(-1)
     subsample_len = int(np.floor(0.5 * len(train_indices)))
-    subset_idx = np.random.randint(train_indices.shape[0], size=subsample_len)
+    subset_idx = np.random.randint(len(train_indices), size=subsample_len)
     train_subset = Subset(dataset, train_indices[subset_idx])
     dataloader = torch.utils.data.DataLoader(train_subset, batch_size=128, shuffle=False)
     return dataloader
 
 
-def train_whitebox(model, optimizer, dataloader, b, centers, args):
+def train_whitebox(model, optimizer, dataloader, b, centers, args, is_attack=False, save_path=None):
     model.train()
     criterion = torch.nn.CrossEntropyLoss().cuda()
     device = next(model.parameters()).device
     x_value = np.random.randn(args.embed_bits, 512)
-    np.save('logs/whitebox/projection_matrix.npy', x_value)
+    # if is_attack:
+    #     save_path = 'logs/whitebox/attacker/projection_matrix.npy'
+    # else:
+    #     save_path = 'logs/whitebox/marked/projection_matrix.npy'
+    np.save(save_path, x_value)
     x_value = torch.tensor(x_value, dtype=torch.float32).to(device)
     b = torch.tensor(b).to(device)
     for ep in range(args.epochs):
+        print(ep)
         for d, t in dataloader:
             d = d.to(device)
             t = t.to(device)
             optimizer.zero_grad()
+            # pred, feat = model(d)  # for MLP
             pred, feat = model(d)
             loss = criterion(pred, t)
             centers_batch = torch.gather(centers, 0, t.unsqueeze(1).repeat(1, feat.shape[1]))
